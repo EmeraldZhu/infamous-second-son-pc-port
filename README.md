@@ -1,6 +1,6 @@
 # inFAMOUS Second Son PC port: EmeraldZhu's playtest build
 
-This is a fork of **[Castlesea's inFAMOUS Second Son PC port](https://github.com/Castlesea/infamous-second-son-pc-port)**, maintained by **Justus Munene Nzioki ([EmeraldZhu](https://github.com/EmeraldZhu))**, a contributor to the project.
+This is a fork of **[Castlesea's inFAMOUS Second Son PC port](https://github.com/Castlesea/infamous-second-son-pc-port)**, maintained by **[Emerald Zhu (EmeraldZhu)](https://github.com/EmeraldZhu)**, a contributor to the project.
 
 It's the build I play and test: Castlesea's latest code, plus a few controller improvements that are proposed upstream but not merged yet. **All of the port itself is Castlesea's work**; see [the original project](#the-original-project-by-castlesea) below.
 
@@ -85,7 +85,7 @@ You can change any of this in the launcher under **CONTROLS** and the **GAME** t
 
 - **[Castlesea](https://github.com/Castlesea)**: author and maintainer of the port. Everything below is his project.
 - **[AMV1909](https://github.com/AMV1909)**, **[NotLeaning](https://github.com/NotLeaning)**, **[De-Os](https://github.com/De-Os)**, **[hosglial](https://github.com/hosglial)** and the other contributors to the original repository.
-- **Justus Munene Nzioki ([EmeraldZhu](https://github.com/EmeraldZhu))**: playtesting, the fixes in #54–#57 and the proposals in #58–#60. Built with Claude Code.
+- **[Emerald Zhu (EmeraldZhu)](https://github.com/EmeraldZhu)**: playtesting, the fixes in #54–#57 and the proposals in #58–#60.
 
 ---
 
