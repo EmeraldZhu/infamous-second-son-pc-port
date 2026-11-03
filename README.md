@@ -1,4 +1,97 @@
-# inFAMOUS Second Son — native PC port (Windows)
+# inFAMOUS Second Son PC port: EmeraldZhu's playtest build
+
+This is a fork of **[Castlesea's inFAMOUS Second Son PC port](https://github.com/Castlesea/infamous-second-son-pc-port)**, maintained by **Justus Munene Nzioki ([EmeraldZhu](https://github.com/EmeraldZhu))**, a contributor to the project.
+
+It's the build I play and test: Castlesea's latest code, plus a few controller improvements that are proposed upstream but not merged yet. **All of the port itself is Castlesea's work**; see [the original project](#the-original-project-by-castlesea) below.
+
+> **You need your own copy of the game.** No game files, keys or copyrighted assets are part of this repository or its releases.
+
+> **Unofficial pre-release.** For the official version, use [Castlesea's releases](https://github.com/Castlesea/infamous-second-son-pc-port/releases).
+
+---
+
+## Install and run (no coding needed)
+
+### What you need
+- A Windows 10 or 11 PC (64-bit) with a graphics card that supports **Vulkan 1.3** (most cards from the last few years do).
+- **Your own copy of inFAMOUS Second Son** (PS4, version 1.07, `CUSA00004` Europe or `CUSA00223` North America), as a folder that contains `eboot.bin`, `sce_sys` and `sce_module`.
+- About 2 GB of free disk space.
+
+### Steps
+1. **Download.** Open the [**Releases** page](https://github.com/EmeraldZhu/infamous-second-son-pc-port/releases), find the newest release, and under **Assets** click the `.zip` file.
+2. **Extract.** Right-click the zip, choose **Extract All…**, and pick a folder you own, for example `D:\Games\inFAMOUS Second Son`. Don't use `Program Files`.
+3. **Start.** In the extracted folder, double-click **`inFAMOUS Second Son Launcher.exe`**.
+   - If Windows shows *"Windows protected your PC"*, click **More info → Run anyway**. The program isn't code-signed, which is normal for community projects.
+4. **Pick your game folder** when the launcher asks. It prepares the game in a few seconds, and your game folder is only read, never changed.
+5. **Press PLAY.** The **first** start prepares the shaders for your graphics card (*"Preparing shaders (first run only)"*, about 2 minutes). Later starts take a few seconds.
+
+### Keep your saves when you switch or update
+Each copy of the port keeps its own saves in its **`user\saves`** folder.
+1. Close the game and the launcher.
+2. Copy **`user\saves`** from your old folder into the new folder's `user` folder. Optionally copy **`user\launcher.ini`** too, to keep your settings.
+3. Start the new launcher; **Continue** loads your latest save.
+
+Copy, don't move: then the old version still works as a fallback.
+
+### Something went wrong?
+- In the launcher, go to **ADVANCED**, turn on **Freeze and crash reports**, play until it happens again, then click **Open logs folder**.
+- Open an [issue on this fork](https://github.com/EmeraldZhu/infamous-second-son-pc-port/issues) and attach that session's folder. Say which release you used.
+
+---
+
+## What's different from the official release
+
+The last official release is `v2026.10.19-controls` (19 October). This build adds:
+
+**Already merged into Castlesea's code, but not in an official release yet**
+- Fix for the frame rate dropping to 1–3 FPS after 8–10 minutes (by AMV1909, #51).
+- NVIDIA crash fix in the native render passes (#54).
+- Controller handled on its own thread: no more stutter from controller input (#55).
+- Save menu: the mouse no longer steals the selection from the controller (#56).
+- The mouse cursor only appears for real mouse or keyboard use (#57).
+- inFAMOUS First Light North America (`CUSA00575`) support (by AMV1909, #52).
+
+**Proposed to Castlesea (open pull requests)**
+
+| Feature | What it does | Upstream |
+|---|---|---|
+| Spray can on **L3 + R3** | Turns the controller on its side and shakes it; the right stick aims, R2 sprays. It ends by itself when you walk away, or 8 s after you stop spraying. B also ends it. | [#58](https://github.com/Castlesea/infamous-second-son-pc-port/pull/58) |
+| New default layout | **Menu = pause**, **View = touchpad (both sides)**. View + D-pad left / right presses just that side. | [#59](https://github.com/Castlesea/infamous-second-son-pc-port/pull/59) |
+| Command Center cores | Hold **View + right stick up** and the finger stays at the top of the touchpad, then press or hold **R2**. | [#60](https://github.com/Castlesea/infamous-second-son-pc-port/pull/60) |
+
+If Castlesea changes or declines any of these, this build will follow his decision.
+
+### Tested on
+- Ryzen 7 7800X3D + RTX 5070 Ti, Windows, Xbox-style controller.
+- A full 56-minute session with no crash and no freeze over a second, about 55 FPS average at the settings I play. Results are on [issue #53](https://github.com/Castlesea/infamous-second-son-pc-port/issues/53).
+
+### Controls in this build
+Everything in [Controls](#controls) below applies, **except on controllers without a touchpad** (Xbox pads and similar):
+
+| Button | Does |
+|---|---|
+| **Menu** | Pause (Options) |
+| **View** | Touchpad, both sides at once (covers left, right, middle and both-sides prompts) |
+| **View + D-pad left / right** | Touchpad, that side only |
+| **View + right stick** | Touchpad swipes |
+| **View + right stick up, held** | Holds the swipe for the Command Center cores; then press or hold R2 |
+| **L3 + R3** | Spray can: turn and shake; again to shake again; B or walking ends it |
+
+You can change any of this in the launcher under **CONTROLS** and the **GAME** tab.
+
+---
+
+## Credits
+
+- **[Castlesea](https://github.com/Castlesea)**: author and maintainer of the port. Everything below is his project.
+- **[AMV1909](https://github.com/AMV1909)**, **[NotLeaning](https://github.com/NotLeaning)**, **[De-Os](https://github.com/De-Os)**, **[hosglial](https://github.com/hosglial)** and the other contributors to the original repository.
+- **Justus Munene Nzioki ([EmeraldZhu](https://github.com/EmeraldZhu))**: playtesting, the fixes in #54–#57 and the proposals in #58–#60. Built with Claude Code.
+
+---
+
+> The rest of this page is the original README from [Castlesea/infamous-second-son-pc-port](https://github.com/Castlesea/infamous-second-son-pc-port). Where the controls differ, the [Controls in this build](#controls-in-this-build) section above applies.
+
+## The original project, by Castlesea
 
 ![Delsin at a D.U.P. checkpoint in the forest, 123 FPS](docs/media/forest-checkpoint.jpg)
 *Ryzen 7 7800X3D + Radeon RX 9070 XT, Vulkan, VSync off: 123 FPS (7.5 ms a frame).*
@@ -12,11 +105,11 @@ An experimental native Windows port of the PS4 game *inFAMOUS Second Son*.
 
 > **You need your own copy of the game.** No game files, keys or copyrighted assets are part of this repository or its releases.
 
-## Video showcase
+### Video showcase
 
-### [▶ Watch the video showcase on YouTube](https://youtu.be/V8LJlxHLb_Q)
+#### [▶ Watch the video showcase on YouTube](https://youtu.be/V8LJlxHLb_Q)
 
-## The idea
+### The idea
 
 Most ways of playing a console game on PC emulate the console: they translate its CPU code and re-interpret, command by command, everything it asks of the GPU. This project goes the other way, and moves the game onto the PC natively, piece by piece:
 
@@ -26,7 +119,7 @@ Most ways of playing a console game on PC emulate the console: they translate it
 
 What is still translated today is the rest of the GPU command processor; moving it to native is the next step (see [Roadmap](#roadmap)).
 
-## Status
+### Status
 
 - Playable: story saves, free roam, menus, pause and saving work.
 - Reference machine: Ryzen 7 7800X3D + Radeon RX 9070 XT. With VSync off:
@@ -40,7 +133,7 @@ What is still translated today is the rest of the GPU command processor; moving 
   - Shader compiles in areas no cache has seen yet (a new player's first session).
   - Lower frame rate in the densest views (command processor bound).
 
-## Controls
+### Controls
 
 - **Controllers:** Xbox pads, PlayStation pads and Steam Input / Steam Deck. The keyboard works too.
 - **Motion controls:** controllers with a gyro and an accelerometer (PlayStation pads, the Steam Controller, Steam Deck) are the spray can of the graffiti missions, as on a PS4: hold them sideways, shake, and aim by moving them. The Steam Controller and Steam Deck measure only up to 2 G, so their shake is scaled to what a DualShock 4 reports (`ISS_PAD_ACCEL_GAIN` changes it).
@@ -48,7 +141,7 @@ What is still translated today is the rest of the GPU command processor; moving 
 - **Other keys:** F9 shows the frame rate, Alt+Enter toggles fullscreen.
 - **The ? at the top right of the launcher** lists the in-game keys below.
 
-### Controllers without a touchpad
+#### Controllers without a touchpad
 
 The game asks for the PS4 touchpad in fast moments of gameplay (absorbing powers, finishers, prompts). On a controller without one, **View and Menu press the left and right side of the touchpad** by default, so it stays under your thumbs. **CONTROLS** in the launcher changes what each button does; PlayStation controllers use their own touchpad and keep their layout.
 
@@ -58,7 +151,7 @@ The game asks for the PS4 touchpad in fast moments of gameplay (absorbing powers
 
 ![The launcher's CONTROLS page](docs/media/launcher-controls.png)
 
-### F5: the Touchpad & Spray window
+#### F5: the Touchpad & Spray window
 
 A small window that stays on top of the game **without taking the focus**: the game keeps the keyboard and the controller while you click it. F5 shows or hides it, and each tab has its own guide.
 
@@ -78,7 +171,7 @@ A small window that stays on top of the game **without taking the focus**: the g
 3. **Spray:** hold the left mouse button and move the mouse to paint. The mouse turns the can using its raw movement, without Windows' pointer acceleration, so the same hand movement always paints the same stroke. Shift aims finely, the middle button recenters, and **Speed** changes how far the can turns.
 4. Press **F7** to end spray mode and get the cursor back. While spray mode is on, the window lets the clicks through to the game.
 
-### Keyboard
+#### Keyboard
 
 The whole controller is on the keyboard too, while the game window has the focus:
 
@@ -103,7 +196,7 @@ The whole controller is on the keyboard too, while the game window has the focus
 | F9 | Frame rate overlay |
 | Alt+Enter | Fullscreen / windowed |
 
-## Launcher
+### Launcher
 
 ![The launcher's main page with the in-game key guide](docs/media/launcher-help.png)
 
@@ -129,7 +222,7 @@ The whole controller is on the keyboard too, while the game window has the focus
   - *Command processor core:* Dedicated (default) gives the GPU command processor the last physical core alone; Shared leaves every core to the game.
   - *Pause menu acceleration:* On (default) keeps the fast native paths in the pause menu; Off draws it through the slower original path, as earlier builds did, should a menu hang the GPU.
 
-### Diagnostics
+#### Diagnostics
 
 Each session writes `stdout.log`, `stderr.log` and `frames.csv` (the time of every frame) to `user\logs\<date-time>\`; the launcher keeps the last five sessions. Three switches on the ADVANCED page add more, all off except the first:
 
@@ -140,7 +233,7 @@ Each session writes `stdout.log`, `stderr.log` and `frames.csv` (the time of eve
 | Freeze and crash reports | `freeze-<n>.txt` when no frame was shown for 3 s (again at 9 s), `crash-threads.txt` on a crash: every thread's name, CPU time and stack (module+offset with the nearest export, `eboot+offset` in game code) | none until a freeze or a crash |
 
 For a bug report: turn on *Freeze and crash reports*, play until it happens, and attach the session's folder (Open logs folder). Frames in `iss-gpu.dll` are named with `iss-gpu.map` of the same build.
-## Ultrawide
+### Ultrawide
 
 `pc-port/native/ultrawide.cpp` patches the game before it starts (each patched function is checked against the 1.07 eboot first):
 - `ISS_RESOLUTION=WxH`: the renderer's output and render size, which the game otherwise sets to 1920x1080. Every render target is derived from it.
@@ -153,7 +246,7 @@ For a bug report: turn on *Freeze and crash reports*, play until it happens, and
 
 The launcher sets all three from **SETTINGS > GRAPHICS**. The window keeps the picture's aspect; in fullscreen on a monitor of the same aspect the picture fills it.
 
-## Repository layout
+### Repository layout
 
 | Path | What it holds |
 |---|---|
@@ -172,7 +265,7 @@ Local-only folders (git-ignored):
 - `tools/`: the LLVM toolchain.
 - `pc-port/out/`: builds, runs, caches and saves.
 
-## Building
+### Building
 
 Requirements:
 - Windows 11.
@@ -191,7 +284,7 @@ python build_gpu.py --jobs 12                         & rem iss-gpu.dll (rendere
 python build_release.py --name <folder>               & rem the release folder (launcher included)
 ```
 
-## Running
+### Running
 
 - Release: extract the zip, run `inFAMOUS Second Son Launcher.exe` and pick your game folder.
 - Development: `python pc-port/scripts/play_porte.py` starts the current development build.
@@ -199,7 +292,7 @@ python build_release.py --name <folder>               & rem the release folder (
 
 Most behaviour is controlled with `ISS_*` environment variables, set by the launcher and the scripts. `pc-port/scripts/play_porte.py` lists the ones the current build turns on, with the reason and the measurement behind each.
 
-## Roadmap
+### Roadmap
 
 1. **Finish moving the GPU command processor to native.** This is the last big translated part. It means cheaper native pass execution, no waiting on the recording pool, asynchronous readbacks and the remaining non-native draws. It is the limit in the densest views today.
 2. **Small fixes in the same pass:**
@@ -207,12 +300,12 @@ Most behaviour is controlled with `ISS_*` environment variables, set by the laun
    - the remaining streaming-burst frames.
 3. **A full code review** and clean-up pass.
 
-## Contributors
+### Contributors
 
 - **[Castlesea](https://github.com/Castlesea)**: author and maintainer.
 - **Claude** (Anthropic): AI pair programmer. Engineering, profiling and code across the runtime, the renderer and the launcher.
 
-## License and credits
+### License and credits
 
 GPL-2.0-or-later (see `pc-port/LICENSE` and `pc-port/THIRD_PARTY.md`). The project builds on:
 - the shadPS4 video core and shader recompiler;
