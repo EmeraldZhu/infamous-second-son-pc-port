@@ -422,12 +422,51 @@ bool Evaluate(vk::CommandBuffer cmdbuf, u64 frame, const EvalImage& color, const
             return false;
         }
         if (output.width != color.width || output.height != color.height) {
-            // D1 is DLAA only (output = input size); upscaling comes with D2.
-            g_refused_key = key;
-            LOG_WARNING(Render_Vulkan, "DLSS: {}x{} -> {}x{} is not DLAA - not run", color.width,
-                        color.height, output.width, output.height);
-            ++g_failed;
-            return false;
+            // D2 (ISS_DLSS_UPSCALE): the first mode whose render range holds the input (AxylPup
+            // vk_dlss.cpp); a mode the driver refuses is skipped; none = not run.
+            const sl::DLSSMode modes[] = {sl::DLSSMode::eMaxQuality, sl::DLSSMode::eUltraQuality,
+                                          sl::DLSSMode::eBalanced, sl::DLSSMode::eMaxPerformance,
+                                          sl::DLSSMode::eUltraPerformance};
+            bool fits = false;
+            sl::DLSSMode best = sl::DLSSMode::eOff;
+            u32 best_gap = ~0u;
+            for (const sl::DLSSMode m : modes) {
+                options.mode = m;
+                sl::DLSSOptimalSettings opt{};
+                if (!g_api.dlss_get_optimal ||
+                    g_api.dlss_get_optimal(options, opt) != sl::Result::eOk) {
+                    continue;
+                }
+                LOG_INFO(Render_Vulkan, "DLSS: mode {} for {}x{}: render {}x{} (min {}x{}, max {}x{})",
+                         static_cast<u32>(m), output.width, output.height, opt.optimalRenderWidth,
+                         opt.optimalRenderHeight, opt.renderWidthMin, opt.renderHeightMin,
+                         opt.renderWidthMax, opt.renderHeightMax);
+                if (opt.renderWidthMin <= color.width && color.width <= opt.renderWidthMax &&
+                    opt.renderHeightMin <= color.height && color.height <= opt.renderHeightMax) {
+                    // The mode whose own render size is nearest (the launcher's quality choice).
+                    const u32 gap = opt.optimalRenderWidth > color.width
+                                        ? opt.optimalRenderWidth - color.width
+                                        : color.width - opt.optimalRenderWidth;
+                    if (gap < best_gap) {
+                        best_gap = gap;
+                        best = m;
+                    }
+                    fits = true;
+                }
+            }
+            options.mode = best;
+            if (!fits) {
+                g_refused_key = key;
+                LOG_WARNING(Render_Vulkan, "DLSS: no mode takes {}x{} to {}x{} - not run",
+                            color.width, color.height, output.width, output.height);
+                std::fprintf(stderr, "DLSS: no mode takes %ux%u to %ux%u - not run\n", color.width,
+                             color.height, output.width, output.height);
+                ++g_failed;
+                return false;
+            }
+            std::fprintf(stderr, "DLSS upscale mode %u: %ux%u -> %ux%u\n",
+                         static_cast<u32>(options.mode), color.width, color.height, output.width,
+                         output.height);
         }
         options.qualityPreset = static_cast<sl::DLSSPreset>(preset);
         options.ultraQualityPreset = static_cast<sl::DLSSPreset>(preset);

@@ -61,6 +61,19 @@ The last official release is `v2026.10.19-controls` (19 October). This build add
 
 If Castlesea changes or declines any of these, this build will follow his decision.
 
+**Only in this build (performance and DLSS)**
+- **Smoother fights.** The game's particle data is read one frame later, and the particle lights go to the GPU once per frame instead of once per light. In a big fight the slowest frames improved from about 20 to 24 FPS at 4K.
+- **Upscaling, in the launcher under GRAPHICS:**
+  - **Upscaling:** Off / FSR 1 / DLSS.
+  - **Upscaling quality:** Native / Quality / Balanced / Performance, i.e. the game renders at 100 / 67 / 58 / 50 % of your resolution and the upscaler fills the rest. With DLSS, **Native = DLAA** (anti-aliasing only).
+  - At 4K, fights are limited by the graphics card: **DLSS Quality** or **Balanced** keeps them much closer to 60 FPS than native 4K.
+- **DLSS needs an NVIDIA RTX card and NVIDIA's own files**, which this build can't include:
+  1. Download the **Streamline SDK 2.14.16** zip from [NVIDIA's Streamline releases](https://github.com/NVIDIA-RTX/Streamline/releases).
+  2. From its `bin\x64` folder, copy `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`, `sl.pcl.dll` and `nvngx_dlss.dll` into a folder named **`dlss`** next to `inFAMOUS Second Son Launcher.exe`.
+  3. Without them, DLSS stays off and the game's own picture is used.
+- In game, **Home** (Fn+End on keyboards without it) switches DLSS on and off, and **F9** shows whether it is running.
+- **Stuck at 30 FPS with DLSS?** NVIDIA's *Max Frame Rate* setting fights with DLSS. In NVIDIA Control Panel → Manage 3D settings → Program Settings, add `bin\iss-probe.exe` and set **Max Frame Rate: Off** (use the launcher's frame rate limit instead). If the change doesn't apply, remove the program from the list and add it again.
+
 ### Tested on
 - Ryzen 7 7800X3D + RTX 5070 Ti, Windows, Xbox-style controller.
 - A full 56-minute session with no crash and no freeze over a second, about 55 FPS average at the settings I play. Results are on [issue #53](https://github.com/Castlesea/infamous-second-son-pc-port/issues/53).

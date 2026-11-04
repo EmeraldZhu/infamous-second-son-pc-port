@@ -127,6 +127,7 @@ bool Audited(u64 hash) {
 namespace iss::asc_family {extern u32 family;extern thread_local u32 pool_family;}
 uint64_t IssImageBase(); // bridge.cpp
 #include "iss_dlss.h"
+#include "iss_dlss_upscale.h"
 
 namespace Vulkan {
 
@@ -1110,12 +1111,20 @@ bool Rasterizer::DlssResolve() {
     const auto c = eval_image(*color, vk::ImageLayout::eShaderReadOnlyOptimal, false);
     const auto m = eval_image(*motion, vk::ImageLayout::eShaderReadOnlyOptimal, false);
     const auto d = eval_image(*depth, vk::ImageLayout::eDepthStencilReadOnlyOptimal, false);
-    const auto o = eval_image(out, vk::ImageLayout::eGeneral, true);
+    // D2 (ISS_DLSS_UPSCALE): DLSS writes the window size into the upscaler's own image; this
+    // target becomes the HUD layer (cleared below, the HUD draws write alpha).
+    iss::dlss::Upscaler* const upscaler =
+        iss::dlss::HudLayerActive() ? iss::dlss::GetUpscaler(instance) : nullptr;
+    const auto o = upscaler ? upscaler->SceneTarget() : eval_image(out, vk::ImageLayout::eGeneral, true);
+    const bool up = upscaler != nullptr;
     const u64 frame = calls;
     // Recorded now or on the recording thread, in order. A failed evaluate turns DLSS off: the
     // game's own resolve runs from the next frame on.
-    scheduler.Recorder().Record([c, m, d, o, frame, jx, jy, reset](vk::CommandBuffer cmdbuf) {
-        if (!iss::dlss::Evaluate(cmdbuf, frame, c, m, d, o, jx, jy, reset)) {
+    scheduler.Recorder().Record([c, m, d, o, frame, jx, jy, reset, up](vk::CommandBuffer cmdbuf) {
+        if (up) iss::dlss::Upscaler::ToGeneral(cmdbuf, o.image);
+        const bool ok = iss::dlss::Evaluate(cmdbuf, frame, c, m, d, o, jx, jy, reset);
+        if (up) iss::dlss::Upscaler::ToRead(cmdbuf, o.image);
+        if (!ok) {
             if (iss::dlss::g_ready.exchange(false, std::memory_order_relaxed))
                 std::fprintf(stderr, "DLSS evaluate failed: off, the game's own resolve runs\n");
         }
@@ -1125,6 +1134,16 @@ bool Rasterizer::DlssResolve() {
     // draw relies on may be assumed still bound.
     scheduler.GetDynamicState().Invalidate();
     fast_draw.valid = false;
+    if (upscaler) {
+        upscaler->SceneWritten();
+        iss::dlss::g_up_in_w.store(width, std::memory_order_relaxed);
+        iss::dlss::g_up_in_h.store(height, std::memory_order_relaxed);
+        iss::dlss::g_up_out_w.store(o.width, std::memory_order_relaxed);
+        iss::dlss::g_up_out_h.store(o.height, std::memory_order_relaxed);
+        // The HUD draws onto (0, 0, 0, 1): HUD colour + transmittance (iss_dlss_upscale.h).
+        runtime.ClearImage(&out, VideoCore::SubresourceRange{},
+                           vk::ClearValue{.color = vk::ClearColorValue{std::array{0.0f, 0.0f, 0.0f, 1.0f}}});
+    }
     out.flags |= VideoCore::ImageFlagBits::GpuModified;
     out.flags &= ~VideoCore::ImageFlagBits::Dirty;
     if (calls == 1 || (calls & 2047) == 0)
@@ -6273,7 +6292,13 @@ void Rasterizer::UpdateColorBlendingState(const GraphicsPipeline* pipeline) cons
     const auto& regs = DrawRegs();
     auto& dynamic_state = scheduler.GetDynamicState();
     dynamic_state.SetBlendConstants(regs.blend_constants);
-    dynamic_state.SetColorWriteMasks(pipeline->GetGraphicsKey().write_masks);
+    if (iss::dlss::UpscaleWanted()) [[unlikely]] {
+        auto masks = pipeline->GetGraphicsKey().write_masks;
+        iss::dlss::ApplyHudLayerMask(masks, regs.color_buffers[0].Address());
+        dynamic_state.SetColorWriteMasks(masks);
+    } else {
+        dynamic_state.SetColorWriteMasks(pipeline->GetGraphicsKey().write_masks);
+    }
     dynamic_state.SetAttachmentFeedbackLoopEnabled(attachment_feedback_loop);
 }
 

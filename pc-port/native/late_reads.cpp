@@ -14,6 +14,11 @@
 // bytes): the cave returns to 0x29cc8e instead of 0x29cc9e, where push rdi; push rsi; movabs rax,
 // hook; call rax; pop rsi; pop rdi runs ArenaDiscardHook right before 0x3ee7d0 refills the arena
 // half of two frames ago. The hook tells the GPU DLL that half's GPU data is dead (no download).
+// ISS_PARTICLE_LIGHT_ONE_SUBMIT=1 (with the late read; AxylPup SHADPS4_PARTICLE_LIGHT_ONE_SUBMIT,
+// same bytes): 0x3f3ed0 records two DMA_DATAs per light-emitting particle effect and then submits
+// the ring (call 0x1691e0 at 0x3f4036): ~25 submits per fight frame, ~74 at worst. With the late
+// read the copies stay in the command buffer and go out with 0x3ee7d0's first submit of the same
+// frame, so that call becomes a 5-byte NOP.
 #include "late_reads.h"
 #include "../src/runtime.h"
 #include <atomic>
@@ -56,6 +61,8 @@ constexpr unsigned char kCave[] = {
 constexpr unsigned char kLoopJump[] = {0xe9, 0xd2, 0x14, 0x15, 0x00, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
                                        0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
 constexpr unsigned char kNop5[] = {0x0f, 0x1f, 0x44, 0x00, 0x00};
+// call 0x1691e0 (the per-light ring submit at 0x3f4036)
+constexpr unsigned char kLightSubmitOriginal[] = {0xe8, 0xa5, 0x51, 0xd7, 0xff};
 
 // The particle arena: base pointer and parity (0/1: the half 0x3ee7d0 fills this frame).
 constexpr std::uint64_t kArenaBase = 0x7d3eb10, kArenaParity = 0x7d3eb38, kArenaHalf = 0x1E00000;
@@ -134,6 +141,18 @@ int InstallParticleLateRead(unsigned char* image, std::uint64_t size) {
     if (with_discard)
         std::fprintf(stderr, "PARTICLE_ARENA_DISCARD applied: frame-start hook %p at eboot+0x29cc8e\n",
                      reinterpret_cast<void*>(&ArenaDiscardHook));
+    if (const char* one = std::getenv("ISS_PARTICLE_LIGHT_ONE_SUBMIT"); one && one[0] == '1') {
+        constexpr std::uint64_t at = 0x3f4036;
+        if (size <= at + sizeof(kLightSubmitOriginal) ||
+            std::memcmp(image + at, kLightSubmitOriginal, sizeof(kLightSubmitOriginal)) != 0) {
+            std::fputs("PARTICLE_LIGHT_ONE_SUBMIT rejected: eboot+0x3f4036 differs\n", stderr);
+        } else if (!Write(image, at, kNop5, sizeof(kNop5))) {
+            std::fputs("PARTICLE_LIGHT_ONE_SUBMIT failed: could not write the game code\n", stderr);
+        } else {
+            std::fputs("PARTICLE_LIGHT_ONE_SUBMIT applied: per-light ring submit at eboot+0x3f4036 "
+                       "is a NOP\n", stderr);
+        }
+    }
     return 1;
 }
 } // namespace iss::native
