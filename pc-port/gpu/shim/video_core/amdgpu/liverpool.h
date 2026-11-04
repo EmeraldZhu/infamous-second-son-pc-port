@@ -261,6 +261,17 @@ public:
         }
     }
 
+    /// SendCommand<false> that gives up instead of asserting once the command processor is
+    /// stopping (callers on guest threads that may still run during shutdown).
+    bool TrySendCommand(auto&& func) {
+        std::scoped_lock lk{submit_mutex};
+        if (cp_stopping.load(std::memory_order_relaxed)) return false;
+        command_queue.emplace(std::forward<decltype(func)>(func));
+        ++num_commands;
+        submit_cv.notify_all();
+        return true;
+    }
+
     void ReserveCopyBufferSpace() {
         GpuQueue& gfx_queue = mapped_queues[GfxQueueId];
         std::scoped_lock lk(gfx_queue.m_access);

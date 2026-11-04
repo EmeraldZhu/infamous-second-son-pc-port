@@ -1,0 +1,139 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// ISS_PARTICLE_LATE_READ=1: the particle control blocks (survivor counts, light counts, CPU
+// collision) are read at the start of the next frame, just before eboot+0x3ee7d0 consumes them,
+// instead of right after this frame's particle chain is kicked. Game:Main then no longer waits for
+// that chain's GPU work in the middle of the frame (readback site eboot+0x3f3e00: ~58% of the
+// guest's readback wait in a D.U.P. fight, 2026-11-04). The data is complete, one frame later.
+// Approach and bytes from axylpup/shadPS4 (second-son-v1.1.1, SHADPS4_PARTICLE_LATE_READ V1,
+// GPL-2.0-or-later). CUSA00004 01.07 only: every byte is compared first, all or nothing.
+//   - a cave in the unreferenced function at 0x3ee160 calls 0x3edef0 (readback) and 0x3ee470
+//     (collision join + label wait), sets up 0x3ee7d0's arguments and jumps back;
+//   - the main loop jumps to the cave at 0x29cc89;
+//   - the old 0x3edef0 call at 0x29cd1e becomes a 5-byte NOP (the 0x3ee470 call at 0x29cd56 stays).
+// ISS_PARTICLE_ARENA_DISCARD=1 (with the late read; AxylPup SHADPS4_PARTICLE_ARENA_DISCARD, same
+// bytes): the cave returns to 0x29cc8e instead of 0x29cc9e, where push rdi; push rsi; movabs rax,
+// hook; call rax; pop rsi; pop rdi runs ArenaDiscardHook right before 0x3ee7d0 refills the arena
+// half of two frames ago. The hook tells the GPU DLL that half's GPU data is dead (no download).
+#include "late_reads.h"
+#include "../src/runtime.h"
+#include <atomic>
+#include <windows.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iterator>
+
+namespace {
+struct Bytes {
+    std::uint64_t at;
+    std::size_t size;
+    const unsigned char* bytes;
+};
+
+constexpr unsigned char kCaveOriginal[] = {
+    0x55, 0x48, 0x89, 0xe5, 0x53, 0x50, 0x48, 0x8b, 0x5f, 0x58, 0xeb, 0x13,
+    0x0f, 0x1f, 0x40, 0x00, 0x48, 0x89, 0xdf, 0xe8, 0x58, 0x5d, 0x00, 0x00,
+    0x48, 0x8b, 0x9b, 0xb0, 0x00, 0x00, 0x00, 0x48, 0x85, 0xdb, 0x75, 0xec,
+    0x48, 0x83, 0xc4, 0x08, 0x5b, 0x5d, 0xc3, 0x90, 0x90, 0x90, 0x90, 0x90};
+// call 0x41b8d0; lea rax,[image+0xf1bcd0]; lea rdi,[image+0x7d3eb10]; mov rsi,[rax+0x1dca0];
+// call 0x3ee7d0
+constexpr unsigned char kLoopOriginal[] = {
+    0xe8, 0x47, 0xec, 0x17, 0x00, 0x48, 0x8d, 0x05, 0x40, 0xf0, 0xc7, 0x00, 0x48, 0x8d, 0x3d, 0x79,
+    0x1e, 0xaa, 0x07, 0x48, 0x8b, 0xb0, 0xa0, 0xdc, 0x01, 0x00, 0xe8, 0x2d, 0x1b, 0x15, 0x00};
+// lea rbx,[image+0x7d3eb10]; mov rdi,rbx; call 0x3edef0
+constexpr unsigned char kReadOriginal[] = {0x48, 0x8d, 0x1d, 0xf5, 0x1d, 0xaa, 0x07, 0x48,
+                                           0x89, 0xdf, 0xe8, 0xcd, 0x11, 0x15, 0x00};
+// mov rdi,rbx; call 0x3ee470 (kept)
+constexpr unsigned char kJoinOriginal[] = {0x48, 0x89, 0xdf, 0xe8, 0x15, 0x17, 0x15, 0x00};
+
+// lea rbx,[image+0x7d3eb10]; mov rdi,rbx; call 0x3edef0; mov rdi,rbx; call 0x3ee470;
+// lea rax,[image+0xf1bcd0]; mov rdi,rbx; mov rsi,[rax+0x1dca0]; jmp 0x29cc9e
+constexpr unsigned char kCave[] = {
+    0x48, 0x8d, 0x1d, 0xa9, 0x09, 0x95, 0x07, 0x48, 0x89, 0xdf, 0xe8, 0x81, 0xfd, 0xff, 0xff,
+    0x48, 0x89, 0xdf, 0xe8, 0xf9, 0x02, 0x00, 0x00, 0x48, 0x8d, 0x05, 0x52, 0xdb, 0xb2, 0x00,
+    0x48, 0x89, 0xdf, 0x48, 0x8b, 0xb0, 0xa0, 0xdc, 0x01, 0x00, 0xe9, 0x11, 0xeb, 0xea, 0xff};
+// jmp 0x3ee160, then NOPs up to the call 0x3ee7d0 at 0x29cc9e
+constexpr unsigned char kLoopJump[] = {0xe9, 0xd2, 0x14, 0x15, 0x00, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+                                       0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+constexpr unsigned char kNop5[] = {0x0f, 0x1f, 0x44, 0x00, 0x00};
+
+// The particle arena: base pointer and parity (0/1: the half 0x3ee7d0 fills this frame).
+constexpr std::uint64_t kArenaBase = 0x7d3eb10, kArenaParity = 0x7d3eb38, kArenaHalf = 0x1E00000;
+unsigned char* g_image{};
+std::atomic<unsigned long long> g_hook_calls{}, g_hook_skips{};
+
+__attribute__((sysv_abi)) void ArenaDiscardHook() {
+    const auto base = *reinterpret_cast<const volatile std::uint64_t*>(g_image + kArenaBase);
+    const auto parity = *reinterpret_cast<const volatile std::uint64_t*>(g_image + kArenaParity);
+    if (base < 0x100000000ULL || base >= 0x1000000000ULL || parity > 1) {
+        const auto n = ++g_hook_skips;
+        if (n == 1 || (n & (n - 1)) == 0)
+            std::fprintf(stderr, "PARTICLE_ARENA_DISCARD skipped %llu (arena base 0x%llx parity %llu)\n",
+                         n, static_cast<unsigned long long>(base), static_cast<unsigned long long>(parity));
+        return;
+    }
+    ++g_hook_calls;
+    gpu_arena_discard(base + parity * kArenaHalf, kArenaHalf, base, base + 2 * kArenaHalf);
+}
+
+bool Write(unsigned char* image, std::uint64_t at, const void* bytes, std::size_t size) {
+    DWORD old, ignored;
+    if (!VirtualProtect(image + at, size, PAGE_EXECUTE_READWRITE, &old)) return false;
+    std::memcpy(image + at, bytes, size);
+    return VirtualProtect(image + at, size, old, &ignored) &&
+           FlushInstructionCache(GetCurrentProcess(), image + at, size);
+}
+} // namespace
+
+namespace iss::native {
+int InstallParticleLateRead(unsigned char* image, std::uint64_t size) {
+    const char* option = std::getenv("ISS_PARTICLE_LATE_READ");
+    if (!option || option[0] != '1') return 0;
+    const Bytes original[] = {{0x3ee160, sizeof(kCaveOriginal), kCaveOriginal},
+                              {0x29cc84, sizeof(kLoopOriginal), kLoopOriginal},
+                              {0x29cd14, sizeof(kReadOriginal), kReadOriginal},
+                              {0x29cd53, sizeof(kJoinOriginal), kJoinOriginal}};
+    for (const auto& o : original) {
+        if (size <= o.at + o.size || std::memcmp(image + o.at, o.bytes, o.size) != 0) {
+            std::fprintf(stderr, "PARTICLE_LATE_READ rejected: eboot+0x%llx differs (CUSA00004 01.07 only)\n",
+                         static_cast<unsigned long long>(o.at));
+            return 0;
+        }
+    }
+    const char* discard_option = std::getenv("ISS_PARTICLE_ARENA_DISCARD");
+    const bool discard = discard_option && discard_option[0] == '1';
+    if (discard && !gpu_arena_discard_available()) {
+        std::fputs("PARTICLE_ARENA_DISCARD disabled: GPU DLL callback unavailable\n", stderr);
+    }
+    unsigned char cave[sizeof(kCave)];
+    unsigned char loop[sizeof(kLoopJump)];
+    std::memcpy(cave, kCave, sizeof(cave));
+    std::memcpy(loop, kLoopJump, sizeof(loop));
+    const bool with_discard = discard && gpu_arena_discard_available();
+    if (with_discard) {
+        g_image = image;
+        // jmp 0x3ee160; push rdi; push rsi; movabs rax, hook; call rax; pop rsi; pop rdi
+        const auto hook = reinterpret_cast<std::uint64_t>(&ArenaDiscardHook);
+        unsigned char tail[16] = {0x57, 0x56, 0x48, 0xb8};
+        std::memcpy(tail + 4, &hook, 8);
+        tail[12] = 0xff; tail[13] = 0xd0; tail[14] = 0x5e; tail[15] = 0x5f;
+        std::memcpy(loop + 5, tail, sizeof(tail));
+        static_assert(sizeof(kLoopJump) == 5 + sizeof(tail), "21 bytes 0x29cc89..0x29cc9e");
+        if (cave[40] != 0xe9 || cave[41] != 0x11) return -1;
+        cave[41] = 0x01; // the cave's jmp returns to 0x29cc8e (the hook) instead of 0x29cc9e
+    }
+    const bool ok = Write(image, 0x3ee160, cave, sizeof(cave)) &&
+                    Write(image, 0x29cc89, loop, sizeof(loop)) &&
+                    Write(image, 0x29cd1e, kNop5, sizeof(kNop5));
+    if (!ok) {
+        std::fputs("PARTICLE_LATE_READ failed: could not write the game code\n", stderr);
+        return -1;
+    }
+    std::fputs("PARTICLE_LATE_READ applied: particle control blocks read one frame later "
+               "(cave eboot+0x3ee160, jump 0x29cc89, nop 0x29cd1e)\n", stderr);
+    if (with_discard)
+        std::fprintf(stderr, "PARTICLE_ARENA_DISCARD applied: frame-start hook %p at eboot+0x29cc8e\n",
+                     reinterpret_cast<void*>(&ArenaDiscardHook));
+    return 1;
+}
+} // namespace iss::native

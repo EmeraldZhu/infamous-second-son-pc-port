@@ -126,8 +126,47 @@ bool Audited(u64 hash) {
 }
 namespace iss::asc_family {extern u32 family;extern thread_local u32 pool_family;}
 uint64_t IssImageBase(); // bridge.cpp
+#include "iss_dlss.h"
 
 namespace Vulkan {
+
+// ISS_DLSS_PROBE=1 (D0, iss_dlss.h): at the game's T2x resolve, log the DLSS inputs this frame's
+// draws gave and the cached images at those addresses. Rendering is unchanged.
+static void DlssProbe(VideoCore::TextureCache& texture_cache) {
+    static u64 resolves = 0, unknown_phase = 0, phases[4] = {};
+    ++resolves;
+    auto& in = iss::dlss::g_inputs;
+    ++phases[in.phase & 3];
+    if (in.phase == 0) ++unknown_phase;
+    if (!(resolves <= 3 || resolves % 1200 == 0)) {
+        return;
+    }
+    std::fprintf(stderr,
+                 "DLSS_PROBE resolve %llu: game %ux%u colour 0x%llx (%ux%u, edges %s) motion 0x%llx "
+                 "depth 0x%llx HUD 0x%llx; phase now %u, phases 1:%llu 2:%llu off:%llu unknown:%llu "
+                 "(weights %s)\n",
+                 (unsigned long long)resolves, in.game_w, in.game_h, (unsigned long long)in.color,
+                 in.color_w, in.color_h, in.edges_seen ? "seen" : "NOT seen",
+                 (unsigned long long)in.motion, (unsigned long long)in.depth,
+                 (unsigned long long)in.hud, in.phase, (unsigned long long)phases[1],
+                 (unsigned long long)phases[2], (unsigned long long)phases[3],
+                 (unsigned long long)phases[0], in.weights_seen ? "seen" : "NOT seen");
+    const auto list = [&](const char* what, VAddr address) {
+        if (address == 0) return;
+        std::string text;
+        texture_cache.ForEachImageAt(address, [&](VideoCore::ImageId, VideoCore::Image& image) {
+            text += fmt::format(" [{}x{} vkfmt {} usage {:#x}]", image.info.size.width,
+                                image.info.size.height, static_cast<int>(image.info.pixel_format),
+                                static_cast<u32>(image.usage_flags));
+        });
+        std::fprintf(stderr, "DLSS_PROBE   %s 0x%llx images:%s\n", what,
+                     (unsigned long long)address, text.empty() ? " none" : text.c_str());
+    };
+    list("colour", in.color);
+    list("motion", in.motion);
+    list("depth", in.depth);
+    list("HUD", in.hud);
+}
 
 thread_local Rasterizer::SplitThreadState Rasterizer::split_thread_state{};
 #include "draw_pipe_rasterizer.inl"
@@ -988,8 +1027,126 @@ void Rasterizer::FlushComputeQueue() {
     }
 }
 
+bool Rasterizer::DlssResolve() {
+    // ISS_DLSS=1 (iss_dlss.h): DLAA from this frame's tonemap output + motion vectors + depth into
+    // the resolve's target (the HUD is drawn onto it next). Inputs found by address and size: the
+    // depth address also holds the minimap's 768x768 depth later in the frame (D0 probe).
+    static u64 calls = 0, evaluated = 0, missing = 0, phases[4] = {};
+    static u32 last_combo = ~0u;
+    ++calls;
+    BumpBindEpoch();
+    const auto& regs = DrawRegs();
+    const auto& in = iss::dlss::g_inputs;
+    VideoCore::TextureCache::ImageDesc out_desc{regs.color_buffers[0], DrawCbExtents()[0]};
+    auto& out = texture_cache.GetImage(texture_cache.FindImage(out_desc, true));
+    const u32 width = out.info.size.width, height = out.info.size.height;
+    const auto find = [&](VAddr address) -> VideoCore::Image* {
+        VideoCore::Image* hit = nullptr;
+        if (address == 0) return hit;
+        texture_cache.ForEachImageAt(address, [&](VideoCore::ImageId, VideoCore::Image& image) {
+            if (!hit && image.info.size.width == width && image.info.size.height == height)
+                hit = &image;
+        });
+        return hit;
+    };
+    VideoCore::Image* color = find(in.color);
+    VideoCore::Image* motion = find(in.motion);
+    VideoCore::Image* depth = find(in.depth);
+    if (!color || !motion || !depth || color->info.pixel_format != out.info.pixel_format ||
+        !(out.usage_flags & vk::ImageUsageFlagBits::eStorage)) [[unlikely]] {
+        if (++missing <= 8)
+            LOG_WARNING(Render_Vulkan,
+                        "DLSS: inputs for {}x{} output {:#x}: colour {:#x} {}, motion {:#x} {}, "
+                        "depth {:#x} {}, storage {} - the game's resolve runs this frame",
+                        width, height, regs.color_buffers[0].Address(), in.color,
+                        color ? "found" : "missing", in.motion, motion ? "found" : "missing",
+                        in.depth, depth ? "found" : "missing",
+                        bool(out.usage_flags & vk::ImageUsageFlagBits::eStorage));
+        return false;
+    }
+    ++phases[in.phase & 3];
+    // The game's two jitter phases are +-0.25 render px diagonally (AxylPup study sec. 1.4: the
+    // game divides +-0.5 by the render target's size); the signs per phase: g_jitter_combo.
+    float jx = 0.0f, jy = 0.0f;
+    const u32 combo = iss::dlss::g_jitter_combo.load(std::memory_order_relaxed);
+    if (in.phase == 1 || in.phase == 2) {
+        const float j = in.phase == 1 ? 0.25f : -0.25f;
+        jx = (combo & 1) ? -j : j;
+        jy = (combo & 2) ? -j : j;
+    }
+    const bool reset = combo != last_combo;
+    last_combo = combo;
+
+    scheduler.EndRendering();
+    bool flush = runtime.Transit(color, vk::ImageLayout::eShaderReadOnlyOptimal,
+                                 vk::PipelineStageFlagBits2::eComputeShader,
+                                 vk::AccessFlagBits2::eShaderRead);
+    flush |= runtime.Transit(motion, vk::ImageLayout::eShaderReadOnlyOptimal,
+                             vk::PipelineStageFlagBits2::eComputeShader,
+                             vk::AccessFlagBits2::eShaderRead);
+    flush |= runtime.Transit(depth, vk::ImageLayout::eDepthStencilReadOnlyOptimal,
+                             vk::PipelineStageFlagBits2::eComputeShader,
+                             vk::AccessFlagBits2::eShaderRead);
+    flush |= runtime.Transit(&out, vk::ImageLayout::eGeneral,
+                             vk::PipelineStageFlagBits2::eComputeShader,
+                             vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite);
+    if (flush) runtime.FlushBarriers();
+    const auto eval_image = [](VideoCore::Image& image, vk::ImageLayout layout, bool storage) {
+        VideoCore::ImageViewInfo view_info{};
+        view_info.type = AmdGpu::ImageType::Color2D;
+        view_info.format = image.info.pixel_format;
+        view_info.is_storage = storage;
+        const auto& view = image.FindView(view_info);
+        return iss::dlss::EvalImage{
+            .image = image.GetImage(),
+            .view = *view.image_view,
+            .format = image.info.pixel_format,
+            .layout = layout,
+            .usage = image.usage_flags,
+            .width = image.info.size.width,
+            .height = image.info.size.height,
+        };
+    };
+    const auto c = eval_image(*color, vk::ImageLayout::eShaderReadOnlyOptimal, false);
+    const auto m = eval_image(*motion, vk::ImageLayout::eShaderReadOnlyOptimal, false);
+    const auto d = eval_image(*depth, vk::ImageLayout::eDepthStencilReadOnlyOptimal, false);
+    const auto o = eval_image(out, vk::ImageLayout::eGeneral, true);
+    const u64 frame = calls;
+    // Recorded now or on the recording thread, in order. A failed evaluate turns DLSS off: the
+    // game's own resolve runs from the next frame on.
+    scheduler.Recorder().Record([c, m, d, o, frame, jx, jy, reset](vk::CommandBuffer cmdbuf) {
+        if (!iss::dlss::Evaluate(cmdbuf, frame, c, m, d, o, jx, jy, reset)) {
+            if (iss::dlss::g_ready.exchange(false, std::memory_order_relaxed))
+                std::fprintf(stderr, "DLSS evaluate failed: off, the game's own resolve runs\n");
+        }
+    });
+    ++evaluated;
+    // Streamline / NGX bind their own compute state into this command buffer: nothing the next
+    // draw relies on may be assumed still bound.
+    scheduler.GetDynamicState().Invalidate();
+    fast_draw.valid = false;
+    out.flags |= VideoCore::ImageFlagBits::GpuModified;
+    out.flags &= ~VideoCore::ImageFlagBits::Dirty;
+    if (calls == 1 || (calls & 2047) == 0)
+        std::fprintf(stderr,
+                     "DLSS resolve %llu: %ux%u evaluated %llu, inputs missing %llu; jitter phase "
+                     "1:%llu 2:%llu off:%llu unknown:%llu, signs %u\n",
+                     (unsigned long long)calls, width, height, (unsigned long long)evaluated,
+                     (unsigned long long)missing, (unsigned long long)phases[1],
+                     (unsigned long long)phases[2], (unsigned long long)phases[3],
+                     (unsigned long long)phases[0], combo);
+    return true;
+}
+
 bool Rasterizer::FilterDraw() {
     const auto& regs = DrawRegs();
+    if (iss::dlss::Enabled()) [[unlikely]] {
+        iss::dlss::NoteDraw(regs);
+        if (iss::dlss::IsResolve(regs)) {
+            if (iss::dlss::ProbeEnabled()) DlssProbe(texture_cache);
+            if (iss::dlss::ReplaceResolve(regs) && DlssResolve()) return false;
+        }
+    }
     if (regs.color_control.mode == AmdGpu::ColorControl::OperationMode::EliminateFastClear) {
         // Clears the render target if FCE is launched before any draws
         EliminateFastClear();

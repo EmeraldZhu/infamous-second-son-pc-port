@@ -294,6 +294,12 @@ public:
     /// recently, so its next reads find the data ready instead of waiting for the GPU.
     void PrefetchReadbacks();
 
+    /// ISS_PARTICLE_ARENA_DISCARD (native/late_reads.cpp): the particle arena half [lo, lo+size)
+    /// the game is about to refill holds dead GPU data: its GPU-modified state is dropped without
+    /// a download. Any thread (Game:Main); DiscardDeadGpuData runs on the command processor.
+    void PostArenaDiscard(VAddr lo, u64 size, VAddr arena_lo, VAddr arena_hi);
+    void DiscardDeadGpuData(VAddr lo, u64 size, u64 snapshot_seq);
+
     /// Writes the pending readbacks the GPU has finished. Cheap: only checks the GPU tick known
     /// from the last submission or wait.
     void RetireReadbacks();

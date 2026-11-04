@@ -9,6 +9,7 @@ static uintptr_t (*resolve_import)(const char *);
 static int (*handle_fault)(void *,void *);
 static int (*readback_memory)(uint64_t,uint64_t);
 static int (*invalidate_memory)(uint64_t,uint64_t);
+static void (*arena_discard)(uint64_t,uint64_t,uint64_t,uint64_t);
 static void (*publish_feedback_identity)(uint64_t,uint64_t,uint64_t);
 // Every thread's stack into the session's crash-threads.txt (gpu/freeze_watchdog.cpp).
 static void (*dump_threads)(unsigned long);
@@ -38,6 +39,7 @@ int gpu_start(uint32_t sdk_version,uint64_t image_base){
     resolve_import=(void *)GetProcAddress(dll,"iss_gpu_resolve");handle_fault=(void *)GetProcAddress(dll,"iss_gpu_fault");
     readback_memory=(void *)GetProcAddress(dll,"iss_gpu_readback");
     invalidate_memory=(void *)GetProcAddress(dll,"iss_gpu_invalidate");
+    arena_discard=(void *)GetProcAddress(dll,"iss_gpu_arena_discard");
     publish_feedback_identity=(void *)GetProcAddress(dll,"iss_gpu_feedback_identity");
     file_opened=(void *)GetProcAddress(dll,"iss_gpu_file_opened");
     void (*mapped)(uint64_t,uint64_t,uint8_t *)=(void *)GetProcAddress(dll,"iss_gpu_map");
@@ -66,6 +68,8 @@ void gpu_dialog_close(void){if(dialog_close)dialog_close();}
 int gpu_dialog_active(void){return dialog_active?dialog_active():0;}
 int gpu_readback(uint64_t address,uint64_t size){return readback_memory?readback_memory(address,size):0;}
 int gpu_invalidate(uint64_t address,uint64_t size){return invalidate_memory?invalidate_memory(address,size):0;}
+int gpu_arena_discard_available(void){return arena_discard!=NULL;}
+void gpu_arena_discard(uint64_t lo,uint64_t size,uint64_t arena_lo,uint64_t arena_hi){if(arena_discard)arena_discard(lo,size,arena_lo,arena_hi);}
 void gpu_file_opened(const char *guest_path){if(file_opened)file_opened(guest_path);}
 int gpu_feedback_identity_available(void){return publish_feedback_identity!=NULL;}
 void gpu_feedback_identity(uint64_t owner_object,uint64_t shader_object,uint64_t record_address){

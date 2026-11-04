@@ -40,6 +40,7 @@ namespace iss { extern std::atomic<unsigned> g_preload_entries, g_preload_total;
 #include <boost/asio/executor_work_guard.hpp>
 #include <xxhash.h>
 #include "common/elf_info.h"
+#include "common/memory_patcher.h"
 #include "common/path_util.h"
 #include "common/perf_stats.h"
 #include "common/rdtsc.h"
@@ -57,6 +58,7 @@ namespace iss { extern std::atomic<unsigned> g_preload_entries, g_preload_total;
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "freeze_watchdog.h"
 namespace iss::diagnostics {void RecordReadbackTime(u64 rip,u64 address,u64 elapsed,unsigned kind);}
+namespace iss { extern thread_local unsigned long long g_guest_fault_rip; }
 
 Frontend::WindowSDL *g_window=nullptr;
 namespace Libraries::GnmDriver {void RegisterLib(Core::Loader::SymbolsResolver*);}
@@ -320,6 +322,13 @@ extern "C" int iss_gpu_invalidate(uint64_t address,uint64_t size){
     auto *renderer=Core::Memory::Instance()->GetRasterizer();if(!renderer)return 0;
     return renderer->InvalidateMemory(address,size,false)?1:0;
 }
+// ISS_PARTICLE_ARENA_DISCARD (native/late_reads.cpp): from Game:Main at the frame start, the
+// particle arena half [lo, lo+size) the game refills now holds dead GPU data.
+extern "C" void iss_gpu_arena_discard(uint64_t lo,uint64_t size,uint64_t arena_lo,uint64_t arena_hi){
+    if(!size||!host.backing(lo,size))return;
+    auto *renderer=Core::Memory::Instance()->GetRasterizer();if(!renderer)return;
+    renderer->GetBufferCache().PostArenaDiscard(lo,size,arena_lo,arena_hi);
+}
 extern "C" int iss_gpu_fault(void *context,void *address){
     if(precise_feedback_site&&!Common::IsWriteError(context)&&
        reinterpret_cast<uintptr_t>(Common::GetRip(context))==host.image_base+0x3f3eff)
@@ -332,7 +341,9 @@ extern "C" int iss_gpu_fault(void *context,void *address){
     if(iss::repeat_census::enabled)[[unlikely]]
         iss::repeat_census::Note(iss::repeat_census::Fault,reinterpret_cast<uintptr_t>(address)&~uintptr_t{0xfff},0x1000,Common::IsWriteError(context)?1:0);
     const auto start=iss::diagnostics::Enabled()?Common::Perf::NowNs():0;
+    iss::g_guest_fault_rip=reinterpret_cast<uintptr_t>(Common::GetRip(context));
     const bool handled=Core::Signals::Instance()->DispatchAccessViolation(context,address);
+    iss::g_guest_fault_rip=0;
     if(start&&handled)iss::diagnostics::RecordReadbackTime(reinterpret_cast<uintptr_t>(Common::GetRip(context)),reinterpret_cast<uintptr_t>(address),Common::Perf::NowNs()-start,Common::IsWriteError(context)?1:0);
     return handled;
 }
@@ -355,6 +366,9 @@ extern "C" void IssPreciseSleepUs(unsigned us){
 extern "C" int iss_gpu_initialize(const IssGpuCallbacks *callbacks){
     if(!callbacks||callbacks->struct_size!=sizeof(host)||!callbacks->backing||!callbacks->clamp||!callbacks->visit_mappings||!callbacks->protect||!callbacks->mapping_epoch||!callbacks->mapping_lock_shared||!callbacks->mapping_unlock_shared)return -1;
     host=*callbacks;
+    // The game's code base for eboot offsets in the renderer (readback_relaxed_sites:
+    // BufferCache::IsRelaxedSite returned false for every site while this stayed 0).
+    MemoryPatcher::g_eboot_address=host.image_base;
     iss::timeline::Emit("gpu_initialize",0,0,host.image_base);
     iss::freeze_watchdog::SetImageBase(host.image_base);
     // The executing image (as native/engine_draw.cpp patches it), not a backing view.

@@ -98,6 +98,11 @@ std::vector<Setting> g_settings = {
      {{L"16:9", "1.7778"}, {L"21:9", "2.3704"}, {L"Full width", "0"}}, TabGraphics},
     {"shader_mode", L"Shader compilation", L"Wait: no missing objects. Skip: smoother, brief pop-in.",
      {{L"Wait", "0"}, {L"Skip", "1"}}, TabGraphics},
+    // ISS_DLSS=1 (gpu/iss_dlss_sl.cpp): NVIDIA DLAA through Streamline in place of the game's
+    // anti-aliasing. Needs an RTX card and NVIDIA's Streamline + DLSS files in the dlss folder;
+    // without them the game's own anti-aliasing stays. In game: Home (Fn+End) = on / off.
+    {"dlss", L"Anti-aliasing (DLSS)", L"NVIDIA RTX. Needs NVIDIA's DLSS files in the dlss folder.",
+     {{L"Off", "0"}, {L"On (DLAA)", "1"}}, TabGraphics},
     {"blackbox", L"GPU crash diagnostics", L"Writes a report if the GPU hangs.",
      {{L"On", "1"}, {L"Off", "0"}}, TabAdvanced},
     // ISS_GPU_PROFILE=1: GPU timestamps around the command processor's submissions
@@ -837,6 +842,7 @@ std::wstring LaunchGame(HWND notify) {
     if (const int limit = atoi(SettingValue("fps_limit")); limit > 0)
         env[L"BB_VBLANK_HZ"] = std::to_wstring(limit * ((240 + limit - 1) / limit));
     env[L"BB_FSR1"] = Widen(SettingValue("fsr"));
+    env[L"ISS_DLSS"] = Widen(SettingValue("dlss"));
     env[L"ISS_RESOLUTION"] = Widen(ResolutionValue());
     env[L"ISS_FOV"] = Widen(SettingValue("fov"));
     env[L"ISS_HUD_ASPECT"] = Widen(SettingValue("hud_width"));

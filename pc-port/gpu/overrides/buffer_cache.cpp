@@ -1271,6 +1271,12 @@ void BufferCache::OnGpuThreadWrite(VAddr device_addr, u64 size) {
     memory_tracker->OnGpuThreadWrite(device_addr, size);
 }
 
+} // namespace VideoCore
+// The faulting guest instruction of the access violation this thread is handling (bridge.cpp
+// iss_gpu_fault), 0 outside one: write faults pass it to ReadMemory for the readback diagnostic.
+namespace iss { thread_local unsigned long long g_guest_fault_rip = 0; }
+namespace VideoCore {
+
 void BufferCache::InvalidateMemory(VAddr device_addr, u64 size, bool assume_locks) {
     if (G4FeedbackProbeEnabled()) feedback_writer_probe.Invalidate(device_addr, size);
     // Guest write faults arrive before the write. Invalidate physical aliases
@@ -1279,9 +1285,10 @@ void BufferCache::InvalidateMemory(VAddr device_addr, u64 size, bool assume_lock
     // Guest write faults invalidate at most 8 bytes, unmaps and other invalidations whole
     // ranges. Faults of the command processor thread come with assume_locks.
     const bool is_fault = size <= 8;
+    const u64 fault_rip = is_fault ? iss::g_guest_fault_rip : 0;
     const bool discarded = memory_tracker->InvalidateRegion(
-        device_addr, size, is_fault, assume_locks, [this, device_addr, size, assume_locks] {
-            ReadMemory(device_addr, size, true, assume_locks);
+        device_addr, size, is_fault, assume_locks, [this, device_addr, size, assume_locks, fault_rip] {
+            ReadMemory(device_addr, size, true, assume_locks, fault_rip);
         });
     if (is_fault && !assume_locks) {
         // Write fault window (ISS_FAULT_WINDOW_KB, power of two, 0 off): the guest fills its
@@ -4121,6 +4128,87 @@ void BufferCache::SubmitPendingArenaBinds(Vulkan::SubmitInfo& info, bool graphic
                "Sparse bind submit failed: {}", vk::to_string(submit_result));
     residency_publication.PublishSubmitted(signal_tick);
     AddResidencyWait(info, signal_tick);
+}
+
+// ISS_PARTICLE_ARENA_DISCARD=1 (with ISS_PARTICLE_LATE_READ=1; native/late_reads.cpp). Port of
+// axylpup/shadPS4 second-son-v1.1.1 SHADPS4_PARTICLE_ARENA_DISCARD (GPL-2.0-or-later). The game's
+// particle arena is two 30 MiB halves alternating by frame; at the frame start 0x3ee7d0 refills the
+// half of two frames ago. Its GPU data is dead then: the late read consumed it at the previous
+// frame's start and that frame's chain (which reads it as old state) finished at its label wait.
+// Without the discard, every guest write into the half lands on GPU-modified pages and waits for a
+// download first (2026-11-04 test E: 8-byte writes around 0x289a00000, 6.6 ms each, 34 ms/frame
+// summed over threads). Dropping the GPU-modified state (no download) makes them plain faults.
+// Guards: the GPU write sequence is read on Game:Main before the game submits the new chain, and a
+// 4 MB chunk the GPU wrote since is left alone; so is a chunk with a download still in flight.
+namespace {
+std::atomic<u64> g_arena_discards{}, g_arena_discard_bytes{}, g_arena_skip_written{},
+    g_arena_skip_pending{}, g_arena_skip_split{}, g_arena_skip_stopping{};
+}
+
+void BufferCache::PostArenaDiscard(VAddr lo, u64 size, VAddr arena_lo, VAddr arena_hi) {
+    if (!liverpool || size == 0) {
+        return;
+    }
+    if (cp_split_enabled) {
+        // An ASC worker may record into the arena concurrently: not covered by this port.
+        if (g_arena_skip_split.fetch_add(1, std::memory_order_relaxed) == 0) {
+            LOG_WARNING(Render_Vulkan, "PARTICLE_ARENA_DISCARD: off with ISS_CP_SPLIT=1");
+        }
+        return;
+    }
+    static std::atomic<bool> logged{};
+    if (!logged.exchange(true, std::memory_order_relaxed)) {
+        LOG_INFO(Render_Vulkan,
+                 "PARTICLE_ARENA_DISCARD: arena {:#x}-{:#x}, first discard of half {:#x}-{:#x}",
+                 arena_lo, arena_hi, lo, lo + size);
+    }
+    const u64 snapshot_seq = memory_tracker->CurrentWriteSeq();
+    if (!liverpool->TrySendCommand(
+            [this, lo, size, snapshot_seq] { DiscardDeadGpuData(lo, size, snapshot_seq); })) {
+        g_arena_skip_stopping.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void BufferCache::DiscardDeadGpuData(VAddr lo, u64 size, u64 snapshot_seq) {
+    AssertGraphicsReadbackOwner();
+    CompleteReadbacks(false); // land the finished downloads first (cheap, no wait)
+    constexpr u64 Chunk = u64{4} << 20;
+    u64 bytes = 0;
+    for (VAddr chunk = lo; chunk < lo + size;) {
+        const VAddr end = std::min<VAddr>((chunk & ~(Chunk - 1)) + Chunk, lo + size);
+        const u64 n = end - chunk;
+        const VAddr at = chunk;
+        chunk = end;
+        if (memory_tracker->GetWriteSeq(at, n) > snapshot_seq) {
+            g_arena_skip_written.fetch_add(1, std::memory_order_relaxed); // the new chain's data
+            continue;
+        }
+        bool in_flight = false;
+        for (const auto& readback : pending_readbacks) {
+            if (readback.window_start < end && at < readback.window_end) {
+                in_flight = true;
+                break;
+            }
+        }
+        if (in_flight) {
+            g_arena_skip_pending.fetch_add(1, std::memory_order_relaxed);
+            continue;
+        }
+        memory_tracker->ForEachDownloadRange<false>(at, n, [&](u64, u64 range) { bytes += range; });
+        memory_tracker->UnmarkRegionAsGpuModified(at, n, false);
+        SubtractGpuRange(at, n);
+    }
+    g_arena_discard_bytes.fetch_add(bytes, std::memory_order_relaxed);
+    const u64 calls = g_arena_discards.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (calls == 1 || (calls & 1023) == 0) {
+        LOG_INFO(Render_Vulkan,
+                 "PARTICLE_ARENA_DISCARD: {} discards, {:.2f} MB GPU-modified dropped per discard, "
+                 "skipped chunks: {} GPU-written since the snapshot, {} download in flight; "
+                 "{} posts at shutdown",
+                 calls, double(g_arena_discard_bytes.load()) / double(calls) / 1048576.0,
+                 g_arena_skip_written.load(), g_arena_skip_pending.load(),
+                 g_arena_skip_stopping.load());
+    }
 }
 
 } // namespace VideoCore

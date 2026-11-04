@@ -47,6 +47,7 @@
 #include "video_core/renderer_vulkan/vk_shader_util.h"
 #include "video_core/renderer_vulkan/driver_cache_data.h"
 #include "shader_salt.h"
+#include "iss_dlss.h"
 
 namespace iss {
 extern thread_local bool assert_throws;
@@ -3600,6 +3601,9 @@ PipelineCache::Result PipelineCache::GetProgram(iss::g4::CpOwner owner, HwStage 
         if (auto& fetch = program->modules[0].spec.fetch_shader_data; !fetch.Empty()) {
             owner_fetch_shader = &fetch;
         }
+        if (owner == iss::g4::CpOwner::Graphics && !active_compute_snapshot)
+            iss::dlss::NoteProgram(sw_stage == SwStage::Fragment, params.hash, params.Base(),
+                                   program->info);
         return std::make_tuple(&program->info, module, perm_hash);
     }
 
@@ -3607,6 +3611,8 @@ PipelineCache::Result PipelineCache::GetProgram(iss::g4::CpOwner owner, HwStage 
     auto& info = program->info;
     info.pgm_base = active_compute_snapshot ? active_compute_snapshot->shader.guest_base
                                              : params.Base(); // inline cbuffer address fixup
+    if (owner == iss::g4::CpOwner::Graphics && !active_compute_snapshot)
+        iss::dlss::NoteProgram(sw_stage == SwStage::Fragment, params.hash, params.Base(), info);
     if (active_compute_snapshot) {
         program->replay_user_data = active_compute_snapshot->user_data;
         info.user_data = program->replay_user_data;

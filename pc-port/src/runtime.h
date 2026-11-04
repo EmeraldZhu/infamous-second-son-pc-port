@@ -63,6 +63,9 @@ int gpu_handle_fault(EXCEPTION_POINTERS *exception);
 void gpu_dump_threads(unsigned long tid);
 int gpu_readback(uint64_t address,uint64_t size);
 int gpu_invalidate(uint64_t address,uint64_t size);
+// ISS_PARTICLE_ARENA_DISCARD (native/late_reads.cpp): drop the dead GPU data of a particle arena half.
+int gpu_arena_discard_available(void);
+void gpu_arena_discard(uint64_t lo,uint64_t size,uint64_t arena_lo,uint64_t arena_hi);
 int gpu_feedback_identity_available(void);
 void gpu_file_opened(const char *guest_path);
 void gpu_feedback_identity(uint64_t owner_object,uint64_t shader_object,uint64_t record_address);
