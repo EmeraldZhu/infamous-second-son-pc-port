@@ -41,15 +41,7 @@ Copy, don't move: then the old version still works as a fallback.
 
 ## What's different from the official release
 
-The last official release is `v2026.10.19-controls` (19 October). This build adds:
-
-**Already merged into Castlesea's code, but not in an official release yet**
-- Fix for the frame rate dropping to 1–3 FPS after 8–10 minutes (by AMV1909, #51).
-- NVIDIA crash fix in the native render passes (#54).
-- Controller handled on its own thread: no more stutter from controller input (#55).
-- Save menu: the mouse no longer steals the selection from the controller (#56).
-- The mouse cursor only appears for real mouse or keyboard use (#57).
-- inFAMOUS First Light North America (`CUSA00575`) support (by AMV1909, #52).
+This build is Castlesea's latest official release, **`v2026.11.05`** (5 November), plus the changes below.
 
 **Proposed to Castlesea (open pull requests)**
 
@@ -58,16 +50,25 @@ The last official release is `v2026.10.19-controls` (19 October). This build add
 | Spray can on **L3 + R3** | Turns the controller on its side and shakes it; the right stick aims, R2 sprays. It ends by itself when you walk away, or 8 s after you stop spraying. B also ends it. | [#58](https://github.com/Castlesea/infamous-second-son-pc-port/pull/58) |
 | New default layout | **Menu = pause**, **View = touchpad (both sides)**. View + D-pad left / right presses just that side. | [#59](https://github.com/Castlesea/infamous-second-son-pc-port/pull/59) |
 | Command Center cores | Hold **View + right stick up** and the finger stays at the top of the touchpad, then press or hold **R2**. | [#60](https://github.com/Castlesea/infamous-second-son-pc-port/pull/60) |
+| DLSS | DLAA and DLSS upscaling (see below). | [#65](https://github.com/Castlesea/infamous-second-son-pc-port/pull/65) |
+| DualSense | Launcher menus, save menu, controller speaker, stronger rumble, louder stereo sound (see below). | [#69](https://github.com/Castlesea/infamous-second-son-pc-port/pull/69) |
 
 If Castlesea changes or declines any of these, this build will follow his decision.
 
-**Only in this build (performance and DLSS)**
-- **Smoother fights.** The game's particle data is read one frame later, and the particle lights go to the GPU once per frame instead of once per light. In a big fight the slowest frames improved from about 20 to 24 FPS at 4K.
+**DualSense (PS5 controller)**
+- **Launcher menus and the save menu** now work with a DualSense or DualShock 4, with ✕ / ○ button hints.
+- **Controller speaker:** the sounds the PS4 played on the controller (the spray can's rattle, the phone, the end of a drain) play on the DualSense's own speaker. As on a PS4, some of them also play on your PC speakers, on purpose.
+  - It works when Windows lists the controller as a sound device: on a **USB cable**, through a **USB dongle** such as [DS5Dongle](https://github.com/awalol/DS5Dongle), or through [DSZ](https://github.com/MaximumFreak/dsz)'s virtual controller over Bluetooth.
+  - **One-time setup:** Windows Settings → System → Sound → More sound settings → select **Speakers (DualSense Wireless Controller)** (or **Wireless Controller**) → **Configure** → **Quadraphonic**. Without it, the sounds play on your PC speakers as before.
+- **Stronger rumble:** the game only uses the controller's small motor, which feels like a faint buzz on a DualSense. Now the big motor joins in, and PlayStation controllers get 1.5× strength.
+- **Louder game sound on stereo speakers and headphones:** the game's 7.1 mix is folded to stereo the way a PS4 does it. Before, the game was much quieter than other ports.
+
+**DLSS (NVIDIA RTX cards)**
 - **Upscaling, in the launcher under GRAPHICS:**
   - **Upscaling:** Off / FSR 1 / DLSS.
   - **Upscaling quality:** Native / Quality / Balanced / Performance, i.e. the game renders at 100 / 67 / 58 / 50 % of your resolution and the upscaler fills the rest. With DLSS, **Native = DLAA** (anti-aliasing only).
   - At 4K, fights are limited by the graphics card: **DLSS Quality** or **Balanced** keeps them much closer to 60 FPS than native 4K.
-- **DLSS needs an NVIDIA RTX card and NVIDIA's own files**, which this build can't include:
+- **DLSS needs NVIDIA's own files**, which this build can't include:
   1. Download the **Streamline SDK 2.14.16** zip from [NVIDIA's Streamline releases](https://github.com/NVIDIA-RTX/Streamline/releases).
   2. From its `bin\x64` folder, copy `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`, `sl.pcl.dll` and `nvngx_dlss.dll` into a folder named **`dlss`** next to `inFAMOUS Second Son Launcher.exe`.
   3. Without them, DLSS stays off and the game's own picture is used.
@@ -75,7 +76,7 @@ If Castlesea changes or declines any of these, this build will follow his decisi
 - **Stuck at 30 FPS with DLSS?** NVIDIA's *Max Frame Rate* setting fights with DLSS. In NVIDIA Control Panel → Manage 3D settings → Program Settings, add `bin\iss-probe.exe` and set **Max Frame Rate: Off** (use the launcher's frame rate limit instead). If the change doesn't apply, remove the program from the list and add it again.
 
 ### Tested on
-- Ryzen 7 7800X3D + RTX 5070 Ti, Windows, Xbox-style controller.
+- Ryzen 7 7800X3D + RTX 5070 Ti, Windows 11, Xbox-style controller and a DualSense (USB dongle and DSZ).
 - A full 56-minute session with no crash and no freeze over a second, about 55 FPS average at the settings I play. Results are on [issue #53](https://github.com/Castlesea/infamous-second-son-pc-port/issues/53).
 
 ### Controls in this build
