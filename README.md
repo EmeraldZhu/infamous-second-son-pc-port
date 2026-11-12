@@ -43,6 +43,8 @@ Copy, don't move: then the old version still works as a fallback.
 
 This build is Castlesea's latest official release, **`v2026.11.05`** (5 November), plus the changes below.
 
+**Merged into Castlesea's code, not in an official release yet:** DLSS ([#65](https://github.com/Castlesea/infamous-second-son-pc-port/pull/65)) and DualSense support ([#69](https://github.com/Castlesea/infamous-second-son-pc-port/pull/69)), both described below.
+
 **Proposed to Castlesea (open pull requests)**
 
 | Feature | What it does | Upstream |
@@ -50,8 +52,7 @@ This build is Castlesea's latest official release, **`v2026.11.05`** (5 November
 | Spray can on **L3 + R3** | Turns the controller on its side and shakes it; the right stick aims, R2 sprays. It ends by itself when you walk away, or 8 s after you stop spraying. B also ends it. | [#58](https://github.com/Castlesea/infamous-second-son-pc-port/pull/58) |
 | New default layout | **Menu = pause**, **View = touchpad (both sides)**. View + D-pad left / right presses just that side. | [#59](https://github.com/Castlesea/infamous-second-son-pc-port/pull/59) |
 | Command Center cores | Hold **View + right stick up** and the finger stays at the top of the touchpad, then press or hold **R2**. | [#60](https://github.com/Castlesea/infamous-second-son-pc-port/pull/60) |
-| DLSS | DLAA and DLSS upscaling (see below). | [#65](https://github.com/Castlesea/infamous-second-son-pc-port/pull/65) |
-| DualSense | Launcher menus, save menu, controller speaker, stronger rumble, louder stereo sound (see below). | [#69](https://github.com/Castlesea/infamous-second-son-pc-port/pull/69) |
+| DualSense speaker fix | Sets the DualSense's speaker volume and routing itself, so the controller speaker is clearly audible after a fresh power-on. | [#73](https://github.com/Castlesea/infamous-second-son-pc-port/pull/73) |
 
 If Castlesea changes or declines any of these, this build will follow his decision.
 
